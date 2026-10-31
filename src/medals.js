@@ -49,8 +49,7 @@ export function medalArt(table, ribbon = true) {
     <path d="M59 88 83 79 102 121 84 118 72 131Z" fill="#ef4444"/>
     <path d="m43 96-8 19m43-19 8 20" fill="none" stroke="#b91c1c" stroke-width="2"/>
     <g fill="#ffd471">${frames[(medal.table - 1) % frames.length]}</g>
-    <circle cx="60" cy="54" r="40" fill="#fff9e8" fill-opacity="1" stroke="${medal.accent}" stroke-width="2"/>
-    <path d="M29 27q14-13 31-12" fill="none" stroke="#fff6cf" stroke-width="3"/>
+    <circle cx="60" cy="54" r="40" fill="#fff9e8" fill-opacity="1" stroke="none"/>
     <g transform="translate(27.6 21.6) scale(.54)">${drawings[medal.table - 1]}</g>
   </g></svg>`;
 }

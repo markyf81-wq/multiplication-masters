@@ -1,4 +1,4 @@
-import { TABLES, newGame, currentCard, markFlash, markRetry, startQuiz, markQuiz, finishGame, gameStats } from "./game.js";
+import { TABLES, newGame, currentCard, markFlash, markRetry, startQuiz, markQuiz, finishGame, gameStats, normaliseEquation } from "./game.js";
 import * as data from "./store.js";
 import { renderReadme } from "./guide.js";
 import { parseStudentRows } from "./student-import.js";
@@ -144,7 +144,7 @@ function renderHome() {
           const medal = medalFor(table);
           return `<button class="table-tile ${state.table === table ? "selected" : ""}" type="button" data-table="${table}" aria-pressed="${state.table === table}" aria-label="${table} times table, ${esc(medal.name)}${earned ? ", medal earned" : ""}" style="--tile-colour:${medal.colour};--tile-accent:${medal.accent}"><span class="tile-character" aria-hidden="true">${medalArt(table, earned)}</span><strong>${table}<span>×</span></strong>${earned ? `<span class="tile-caption" aria-hidden="true">${icon("check")}</span>` : ""}</button>`;
         }).join("")}</div>
-        <div class="start-row"><span>5-second countdown before the first card</span><button class="button" type="button" data-action="${profile ? "prepare-game" : "account"}">${profile ? `Start game · ${state.table}×` : "Sign in to play"} ${icon("arrow")}</button></div>
+        <div class="start-row"><button class="button" type="button" data-action="${profile ? "prepare-game" : "account"}">${profile ? `Start game · ${state.table}×` : "Sign in to play"} ${icon("arrow")}</button></div>
       </div>
       <aside class="side-column"><section class="medal-preview" style="--medal-colour:${medalFor(state.table).colour}"><span class="medal-preview-art" aria-hidden="true">${medalArt(state.table)}</span><div><span class="tiny-chip">${state.table}× medal</span><h2>${esc(medalFor(state.table).name)}</h2><p>${profile?.medals?.includes(state.table) ? "Collected!" : "12/12, then pass the quiz."}</p></div></section>${profile ? `<section class="journey-card"><h2>My progress</h2><div class="journey-stats"><div><strong>${summary.games}</strong><span>games</span></div><div><strong>${medalCount(profile)}<small>/12</small></strong><span>medals</span></div></div><a class="text-link" href="#progress" data-link="progress">View results ${icon("arrow")}</a></section>` : ""}
       </aside>
@@ -240,7 +240,7 @@ async function renderTeacher(renderId) {
       teacherAccountMore: !!teacherResult?.more, teacherAccountError: teacherResult?.error || null,
     });
     main.removeAttribute("aria-busy");
-    main.innerHTML = `<section class="page-heading"><span class="eyebrow">TEACHER DESK</span><h1>Teacher desk</h1><p class="muted">Manage classes, students and teachers.</p></section><section class="panel"><div class="section-heading"><h2>Students & classes</h2><button class="text-link" type="button" data-action="refresh-teacher-data">Refresh</button></div><div class="teacher-tools"><label class="search-field"><span class="sr-only">Search students</span><input type="search" id="student-search" placeholder="Find a student…" value="${esc(state.filter)}"></label><label><span class="sr-only">Filter by class</span><select id="class-filter"><option value="">All classes</option>${classes.map(item => `<option ${state.classFilter === item.name ? "selected" : ""} value="${esc(item.name)}">${esc(item.name)}</option>`).join("")}</select></label></div><div id="student-list"></div><div class="load-more-row"><span id="student-count" class="small muted"></span><button class="button secondary small-button" type="button" data-action="load-students" ${state.teacherMore ? "" : "hidden"}>Load more students</button></div></section><div class="teacher-forms"><section class="panel"><h2>Add a class</h2><form id="class-form" class="stack-form"><label>Class name<input name="className" placeholder="e.g. 4F" maxlength="24" required pattern="([A-Za-z0-9 _]|-)+"></label><button class="button secondary" type="submit">Add class +</button></form></section><section class="panel"><h2>Add a student</h2><form id="student-form" class="stack-form"><div class="field-pair"><label>Nickname<input name="nickname" placeholder="e.g. Alex" maxlength="32" required></label><label>Class<select name="className" required><option value="">Choose a class</option>${classes.map(item => `<option value="${esc(item.name)}">${esc(item.name)}</option>`).join("")}</select></label></div><p class="small muted">Students must sign in with their own Google account to play.</p><button class="button" type="submit">Add student +</button></form></section></div>`;
+    main.innerHTML = `<section class="page-heading"><span class="eyebrow">TEACHER DESK</span><h1>Teacher desk</h1><p class="muted">Manage classes, students and teachers.</p></section><section class="panel"><div class="section-heading"><h2>Students & classes</h2><button class="text-link" type="button" data-action="refresh-teacher-data">Refresh</button></div><div class="teacher-tools"><label class="search-field"><span class="sr-only">Search students</span><input type="search" id="student-search" placeholder="Find a student…" value="${esc(state.filter)}"></label><label><span class="sr-only">Filter by class</span><select id="class-filter"><option value="">All classes</option>${classes.map(item => `<option ${state.classFilter === item.name ? "selected" : ""} value="${esc(item.name)}">${esc(item.name)}</option>`).join("")}</select></label></div><div id="student-list"></div><div class="load-more-row"><span id="student-count" class="small muted"></span><button class="button secondary small-button" type="button" data-action="load-students" ${state.teacherMore ? "" : "hidden"}>Load more students</button></div></section><div class="teacher-forms"><section class="panel"><h2>Add a class</h2><form id="class-form" class="stack-form"><label>Class name<input name="className" placeholder="e.g. 4F" maxlength="24" required pattern="([A-Za-z0-9 _]|-)+"></label><button class="button secondary" type="submit">Add class +</button></form></section><section class="panel"><h2>Add a student</h2><form id="student-form" class="stack-form"><div class="field-pair"><label>Name<input name="nickname" placeholder="e.g. Alex" maxlength="32" required></label><label>Class<select name="className" required><option value="">Choose a class</option>${classes.map(item => `<option value="${esc(item.name)}">${esc(item.name)}</option>`).join("")}</select></label></div><p class="small muted">Students must sign in with their own Google account to play.</p><button class="button" type="submit">Add student +</button></form></section></div>`;
     renderStudentList();
     addTeacherGuideLink();
     enhanceTeacherSetup();
@@ -503,12 +503,12 @@ function stageIntro(game) {
   return `<section class="interlude stage-intro ${retry ? "retry-intro" : "quiz-intro"}" style="--stage-colour:${retry ? "#ffe2c5" : medal.colour}">
     <div class="stage-topline"><button class="text-link" type="button" data-link="play">← Tables</button><span class="tiny-chip">${game.table}× table</span></div>
     <div class="stage-panel"><aside class="stage-art" aria-hidden="true">${artwork}</aside><div class="stage-content">
-      <span class="stage-label">${retry ? "No timer" : "Medal challenge"}</span>
-      <h1>${retry ? `Retry ${missed} card${missed === 1 ? "" : "s"}` : "Ready for the quiz?"}</h1>
+      ${retry ? "" : '<span class="stage-label">Medal challenge</span>'}
+      <h1>${retry ? `Retry round (${missed} card${missed === 1 ? "" : "s"})` : "Ready for the quiz?"}</h1>
       <p class="stage-description">${retry ? "Type the full equation and answer." : "Get 19 out of 20 correct to collect your medal."}</p>
       ${firstRoundSaveStatus()}
-      ${retry ? `<div class="stage-example"><span>Example</span><div>${game.table} x ${example.multiplier} = <b>?</b></div></div>` : '<div class="stage-quiz-rules"><div><strong>20</strong><span>questions</span></div><div><strong>60s</strong><span>time limit</span></div><div><strong>1</strong><span>mistake allowed</span></div></div>'}
-      <button class="button stage-start" type="button" data-action="${retry ? "start-retry" : "start-quiz"}" ${state.firstRoundSaved ? "" : "disabled"}>${retry ? "Start retries" : "Start quiz"} ${icon("arrow")}</button>
+      ${retry ? "" : '<div class="stage-quiz-rules"><div><strong>20</strong><span>questions</span></div><div><strong>60s</strong><span>time limit</span></div><div><strong>1</strong><span>mistake allowed</span></div></div>'}
+      <button class="button stage-start" type="button" data-action="${retry ? "start-retry" : "start-quiz"}" ${state.firstRoundSaved ? "" : "disabled"}>${retry ? "Start retry round" : "Start quiz"} ${icon("arrow")}</button>
     </div></div>
   </section>`;
 }
@@ -531,14 +531,29 @@ function renderGame() {
   const total = retry ? game.cards.filter(item => !item.initialCorrect).length : quiz ? 20 : 12;
   const correctCount = game.cards.filter(item => item.initialCorrect).length;
   const notYetCount = game.cards.filter(item => item.initialCorrect === false).length - (retry ? game.index : 0);
-  main.innerHTML = `<section class="game-top"><button class="text-link" type="button" data-link="play">← Leave game</button><span class="game-table-name">${game.table} TIMES TABLE</span><span class="game-medal-chip">${icon("medal")} ${medalCount(data.activeProfile())}<span>/12 medals</span></span></section><section class="game-intro"><h1>${retry ? "Not yet — retries" : quiz ? "Medal quiz" : "Flashcards"}</h1></section>
+  main.innerHTML = `<section class="game-top"><button class="text-link" type="button" data-link="play">← Leave game</button><span class="game-table-name">${game.table} TIMES TABLE</span><span class="game-medal-chip">${icon("medal")} ${medalCount(data.activeProfile())}<span>/12 medals</span></span></section>${retry || quiz ? `<section class="game-intro"><h1>${retry ? "Retries" : "Medal quiz"}</h1></section>` : ""}
     <section class="game-board ${quiz ? "quiz-board" : retry ? "retry-board" : ""}" aria-label="${retry ? "Retry round" : quiz ? "Medal quiz" : "Flashcard round"}">
       ${quiz ? `<aside class="pile quiz-count"><h2>Correct</h2><strong>${game.quiz.correct}<small>/20</small></strong><p>${game.quiz.wrong} / 2 mistakes</p></aside>` : retry ? "" : `<aside class="pile got-pile"><h2>Got it</h2><strong>${correctCount}</strong><div class="pile-cards mint" aria-hidden="true"><span></span><span></span><span>✓</span></div></aside>`}
-      <div class="card-centre"><div class="card-meta"><span>Card ${game.index + 1} of ${total}</span><span id="timer-label" role="timer" aria-label="${quiz ? "Quiz time remaining" : "Time remaining"}">${retry ? "No timer" : quiz ? "60.0s" : "5.0s"}</span></div>${retry ? "" : '<div class="timer-track" role="progressbar" aria-label="Time remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><span id="timer-fill"></span></div>'}
-      <div class="card-perspective"><div class="flashcard dealt" id="flashcard"><div class="card-face card-front"><span class="card-sticker" aria-hidden="true">${medalArt(game.table, false)}</span><div class="equation">${game.table} <span>×</span> ${multiplier} <span>=</span> <b>?</b></div></div><div class="card-face card-back"><div class="back-equation" id="back-equation">${game.table} × ${multiplier} = <strong>${game.table * multiplier}</strong></div></div></div></div>
+      <div class="card-centre"><div class="card-meta"><span>Card ${game.index + 1} of ${total}</span>${retry ? `<span class="retry-remaining">${icon("retry")} ${notYetCount} left</span>` : ""}<span id="timer-label" role="timer" aria-label="${quiz ? "Quiz time remaining" : "Time remaining"}">${retry ? "No timer" : quiz ? "60.0s" : "5.0s"}</span></div>${retry ? "" : '<div class="timer-track" role="progressbar" aria-label="Time remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><span id="timer-fill"></span></div>'}
+      <div class="card-perspective"><div class="flashcard dealt" id="flashcard"><div class="card-face card-front"><span class="card-sticker" aria-hidden="true">${medalArt(game.table, false)}</span><div class="equation">${retry ? retryEquation(game.table, multiplier) : `${game.table} <span>×</span> ${multiplier} <span>=</span> <b>?</b>`}</div></div><div class="card-face card-back"><div class="back-equation" id="back-equation">${game.table} × ${multiplier} = <strong>${game.table * multiplier}</strong></div></div></div></div>
       <form class="answer-form ${retry ? "equation-form" : ""}" id="answer-form"><label class="sr-only" for="answer">${retry ? "Full equation and answer" : "Your answer"}</label><input id="answer" name="answer" type="text" inputmode="${retry ? "text" : "numeric"}" pattern="${retry ? "[0-9xX×= ]*" : "[0-9]*"}" enterkeyhint="go" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${retry ? `${game.table} x ${multiplier} = ?` : "Answer"}" maxlength="${retry ? "40" : "4"}" aria-describedby="answer-hint" required><button class="answer-submit" type="submit" aria-label="Submit answer">↵</button></form><p class="answer-hint" id="answer-hint">${retry ? "Type the full equation and answer, then Enter" : "Type the answer, then Enter"}</p><div class="answer-feedback" id="answer-feedback" role="status" aria-live="polite"></div></div>
-      <aside class="pile not-yet-pile"><h2>${quiz ? "Seconds left" : "Not yet"}</h2><strong ${quiz ? 'id="quiz-side-time"' : ""}>${quiz ? Math.ceil(Math.max(0, state.deadline - Date.now()) / 1000) : notYetCount}</strong>${quiz ? "" : '<div class="pile-cards peach" aria-hidden="true"><span></span><span></span><span>↻</span></div>'}</aside>
+      ${retry ? "" : `<aside class="pile not-yet-pile"><h2>${quiz ? "Seconds left" : "Not yet"}</h2><strong ${quiz ? 'id="quiz-side-time"' : ""}>${quiz ? Math.ceil(Math.max(0, state.deadline - Date.now()) / 1000) : notYetCount}</strong>${quiz ? "" : '<div class="pile-cards peach" aria-hidden="true"><span></span><span></span><span>↻</span></div>'}</aside>`}
     </section>`;
+}
+
+function retryEquation(table, multiplier) {
+  const operand = number => `<div class="retry-operand">${String(number).split("").map(character => `<span data-retry-character="${character}">${character}</span>`).join("")}</div>`;
+  return `${operand(table)} <span data-retry-character="x">×</span> ${operand(multiplier)} <span data-retry-character="=">=</span> <b>?</b>`;
+}
+
+function updateRetryHighlight(input) {
+  if (state.game?.phase !== "retry") return;
+  const typed = normaliseEquation(input.value);
+  let matching = true;
+  document.querySelectorAll("[data-retry-character]").forEach((character, index) => {
+    matching = matching && typed[index] === character.dataset.retryCharacter;
+    character.classList.toggle("typed-correct", matching);
+  });
 }
 
 function beginCard() {
@@ -597,7 +612,7 @@ function showFeedback(correct, message) {
 function firstRoundSaveStatus() {
   const round = state.game.firstRound;
   return `<div class="round-piles" aria-label="First-round results"><div class="round-pile round-pile-got"><span>${icon("check")} Got it</span><strong>${round.gotIt}</strong></div><div class="round-pile round-pile-not-yet"><span>${icon("retry")} Not yet</span><strong>${round.notYet}</strong></div></div>
-    <div class="round-save-state ${state.firstRoundError ? "round-save-error" : ""}"><p role="status">${state.firstRoundSaving ? "Saving results…" : state.firstRoundError ? `Save not confirmed. ${esc(state.firstRoundError)}` : `${icon("check")} Results saved`}</p>${state.firstRoundError ? '<button class="button secondary small-button" type="button" data-action="retry-first-round-save">Retry save</button>' : ""}</div>`;
+    ${state.firstRoundSaving || state.firstRoundError ? `<div class="round-save-state ${state.firstRoundError ? "round-save-error" : ""}"><p role="status">${state.firstRoundSaving ? "Saving results…" : `Save not confirmed. ${esc(state.firstRoundError)}`}</p>${state.firstRoundError ? '<button class="button secondary small-button" type="button" data-action="retry-first-round-save">Retry save</button>' : ""}</div>` : ""}`;
 }
 
 function saveFirstRoundNow(game) {
@@ -630,7 +645,7 @@ function submitFlash(timedOut = false) {
   showFeedback(correct, correct ? "Correct" : timedOut ? "Time up" : "Incorrect");
   // Allow the 320ms flip to finish, then show a missed answer for three seconds.
   const moveAfter = correct ? 400 : 320 + 3000;
-  delay(() => document.querySelector("#flashcard")?.classList.add(correct ? "fly-got" : "fly-not-yet"), moveAfter);
+  delay(() => document.querySelector(".card-perspective")?.classList.add(correct ? "fly-got" : "fly-not-yet"), moveAfter);
   delay(() => {
     state.game.index++;
     if (state.game.index < 12) { beginCard(); return; }
@@ -667,10 +682,13 @@ function submitRetry() {
       state.cardStarted = Date.now();
       const input = document.querySelector("#answer");
       input.value = "";
+      updateRetryHighlight(input);
       input.disabled = false;
       document.querySelector(".answer-submit").disabled = false;
       document.querySelector("#flashcard")?.classList.remove("retry-card");
-      document.querySelector("#answer-feedback").textContent = "Try again";
+      const feedback = document.querySelector("#answer-feedback");
+      feedback.textContent = "Try again";
+      feedback.className = "answer-feedback";
       input.focus({ preventScroll: true });
     }, 1640);
   }
@@ -978,7 +996,7 @@ document.addEventListener("submit", async event => {
   const nickname = String(fields.get("nickname") || "").trim();
   const className = String(fields.get("className") || "").trim().toUpperCase();
   const email = String(fields.get("email") || "").trim().toLowerCase();
-  if ((form.id.includes("profile") || form.id === "student-form") && !nickname) { toast("Please enter a nickname."); return; }
+  if ((form.id.includes("profile") || form.id === "student-form") && !nickname) { toast("Please enter a name."); return; }
   if (!className || className.length > 24 || /[\/]/.test(className)) { toast("Please enter a class name without slashes, up to 24 characters."); return; }
   if (button) button.disabled = true;
   try {
@@ -1026,11 +1044,17 @@ document.addEventListener("keydown", event => {
 });
 
 document.addEventListener("input", event => {
-  if (event.target.id === "answer" && !event.isComposing) restrictAnswerInput(event.target);
+  if (event.target.id === "answer" && !event.isComposing) {
+    restrictAnswerInput(event.target);
+    updateRetryHighlight(event.target);
+  }
   if (event.target.id === "student-search") { state.filter = event.target.value; renderStudentList(); }
 });
 document.addEventListener("compositionend", event => {
-  if (event.target.id === "answer") restrictAnswerInput(event.target);
+  if (event.target.id === "answer") {
+    restrictAnswerInput(event.target);
+    updateRetryHighlight(event.target);
+  }
 });
 document.addEventListener("change", event => {
   if (event.target.id === "class-filter") { state.classFilter = event.target.value; renderStudentList(); }
