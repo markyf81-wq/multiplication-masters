@@ -9,16 +9,80 @@ service cloud.firestore {
 
     function teacher() {
       return signedIn()
-        && exists(/databases/$(database)/documents/teachers/$(request.auth.uid))
-        && get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data.enabled == true;
+        && exists(/databases/$(database)/documents/teachers/$(request.auth.token.email.lower()))
+        && get(/databases/$(database)/documents/teachers/$(request.auth.token.email.lower())).data.enabled == true;
+    }
+
+    function validTeacher(profile, email) {
+      return profile.keys().hasOnly(['email', 'enabled', 'createdAt', 'invitedByUid', 'updatedAt', 'updatedByUid', 'deleting'])
+        && profile.email == email && email == email.lower()
+        && email.size() > 0 && email.size() <= 254
+        && profile.enabled is bool
+        && profile.get('deleting', false) is bool
+        && (!profile.get('deleting', false) || profile.enabled == false)
+        && profile.createdAt is string && profile.invitedByUid is string
+        && profile.updatedAt is string && profile.updatedByUid == request.auth.uid;
+    }
+
+    function activeTeacher(email) {
+      return email == null || (email is string
+        && exists(/databases/$(database)/documents/teachers/$(email))
+        && get(/databases/$(database)/documents/teachers/$(email)).data.enabled == true
+        && get(/databases/$(database)/documents/teachers/$(email)).data.get('deleting', false) == false);
+    }
+
+    function validClass(record, classId) {
+      return record.keys().hasOnly(['name', 'teacherEmail', 'deleting'])
+        && record.name == classId && classId.size() > 0 && classId.size() <= 24
+        && (record.get('teacherEmail', null) == null || (record.teacherEmail is string
+          && record.teacherEmail == record.teacherEmail.lower() && record.teacherEmail.size() <= 254))
+        && record.get('deleting', false) is bool;
+    }
+
+    function availableClass(name) {
+      return name == '' || (exists(/databases/$(database)/documents/classes/$(name))
+        && get(/databases/$(database)/documents/classes/$(name)).data.get('deleting', false) == false);
+    }
+
+    function validFirstRound(round, startedAt) {
+      return round is map
+        && round.keys().hasAll(['gotIt', 'notYet', 'completedAt', 'totalResponseMs'])
+        && round.keys().hasOnly(['gotIt', 'notYet', 'completedAt', 'totalResponseMs'])
+        && round.gotIt is int && round.gotIt >= 0 && round.gotIt <= 12
+        && round.notYet is int && round.notYet >= 0 && round.notYet <= 12
+        && round.gotIt + round.notYet == 12
+        && round.completedAt is string && round.completedAt >= startedAt
+        && round.totalResponseMs is int && round.totalResponseMs >= 0 && round.totalResponseMs <= 60000;
+    }
+
+    function validGame(record, gameId, studentId) {
+      return record.keys().hasOnly(['id', 'studentId', 'table', 'startedAt', 'completedAt', 'phase', 'index', 'score', 'cards', 'quiz', 'firstRound'])
+        && record.id == gameId && record.studentId == studentId
+        && record.table is int && record.table >= 1 && record.table <= 12
+        && record.score is int && record.score >= 0 && record.score <= 60
+        && record.cards is list && record.cards.size() == 12
+        && record.startedAt is string
+        && (record.quiz == null || record.quiz is map)
+        && (!('firstRound' in record) || validFirstRound(record.firstRound, record.startedAt))
+        && (
+          (record.phase == 'complete' && record.completedAt is string
+            && (!('firstRound' in record) || record.completedAt >= record.firstRound.completedAt))
+          || (record.phase == 'first-round-complete' && record.completedAt == null
+            && validFirstRound(record.firstRound, record.startedAt)
+            && record.score == record.firstRound.gotIt * 5 && record.quiz == null)
+        );
     }
 
     function validProfile(profile) {
-      return profile.keys().hasOnly(['nickname', 'className', 'classNames', 'email', 'ownerUid', 'createdAt', 'medals', 'summary'])
+      return profile.keys().hasOnly(['nickname', 'className', 'classNames', 'email', 'ownerUid', 'createdAt', 'medals', 'summary', 'active', 'deleting'])
+        && profile.get('active', true) is bool
+        && profile.get('deleting', false) is bool
+        && (!profile.get('deleting', false) || profile.get('active', true) == false)
         && profile.nickname is string && profile.nickname.size() > 0 && profile.nickname.size() <= 32
-        && profile.className is string && profile.className.size() > 0 && profile.className.size() <= 24
-        && profile.classNames is list && profile.classNames.size() > 0 && profile.classNames.size() <= 32
-        && profile.className in profile.classNames
+        && profile.className is string && profile.className.size() <= 24
+        && profile.classNames is list && profile.classNames.size() <= 32
+        && ((profile.classNames.size() == 0 && profile.className == '')
+          || (profile.className.size() > 0 && profile.className in profile.classNames))
         && profile.email is string && profile.email.size() > 0 && profile.email.size() <= 254
         && profile.email == profile.email.lower()
         && (profile.ownerUid == null || profile.ownerUid is string)
@@ -39,30 +103,48 @@ service cloud.firestore {
       let email = request.auth.token.email.lower();
       return exists(/databases/$(database)/documents/enrolments/$(email))
         && get(/databases/$(database)/documents/enrolments/$(email)).data.active == true
-        && get(/databases/$(database)/documents/enrolments/$(email)).data.studentId == studentId;
+        && get(/databases/$(database)/documents/enrolments/$(email)).data.studentId == studentId
+        && get(/databases/$(database)/documents/students/$(studentId)).data.get('active', true) == true
+        && get(/databases/$(database)/documents/students/$(studentId)).data.get('deleting', false) == false;
+    }
+
+    function ownsStudent(studentId) {
+      return signedIn() && enrolled(studentId)
+        && get(/databases/$(database)/documents/students/$(studentId)).data.ownerUid == request.auth.uid;
     }
 
     function accessStudent(studentId) {
-      return teacher() || (signedIn() && enrolled(studentId)
-        && get(/databases/$(database)/documents/students/$(studentId)).data.ownerUid == request.auth.uid);
+      return teacher() || ownsStudent(studentId);
     }
 
-    match /teachers/{uid} {
-      // Only project administrators can grant teacher access, through the console.
-      allow get: if signedIn() && request.auth.uid == uid;
-      allow list, create, update, delete: if false;
+    match /teachers/{email} {
+      // Only an existing teacher can invite others; the first is added in the console.
+      allow get: if teacher() || (signedIn() && email == request.auth.token.email.lower());
+      allow list: if teacher();
+      allow create: if teacher() && email != request.auth.token.email.lower()
+        && validTeacher(request.resource.data, email)
+        && request.resource.data.enabled == true
+        && request.resource.data.get('deleting', false) == false
+        && request.resource.data.invitedByUid == request.auth.uid
+        && request.resource.data.createdAt == request.resource.data.updatedAt;
+      allow update: if teacher() && email != request.auth.token.email.lower()
+        && validTeacher(request.resource.data, email)
+        && (!resource.data.get('deleting', false) || request.resource.data.get('deleting', false))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['enabled', 'updatedAt', 'updatedByUid', 'deleting']);
+      allow delete: if teacher() && email != request.auth.token.email.lower()
+        && resource.data.enabled == false && resource.data.get('deleting', false) == true;
     }
 
     match /classes/{classId} {
       allow read: if teacher();
-      allow create, update: if teacher()
-        && request.resource.data.keys().hasOnly(['name', 'classroomCourseId'])
-        && request.resource.data.name is string
-        && request.resource.data.name == classId
-        && classId.size() > 0 && classId.size() <= 24
-        && (!('classroomCourseId' in request.resource.data)
-          || (request.resource.data.classroomCourseId is string && request.resource.data.classroomCourseId.size() <= 128));
-      allow delete: if false;
+      allow create: if teacher() && validClass(request.resource.data, classId)
+        && request.resource.data.get('deleting', false) == false
+        && activeTeacher(request.resource.data.get('teacherEmail', null));
+      allow update: if teacher() && validClass(request.resource.data, classId)
+        && (!resource.data.get('deleting', false) || request.resource.data.get('deleting', false))
+        && (request.resource.data.get('teacherEmail', null) == resource.data.get('teacherEmail', null)
+          || activeTeacher(request.resource.data.get('teacherEmail', null)));
+      allow delete: if teacher() && resource.data.get('deleting', false) == true;
     }
 
     match /enrolments/{email} {
@@ -73,8 +155,11 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['email', 'studentId', 'active'])
         && request.resource.data.email == email && email == email.lower()
         && request.resource.data.studentId is string && request.resource.data.studentId.size() > 0
-        && request.resource.data.active is bool;
-      allow delete: if false;
+        && request.resource.data.active is bool
+        && getAfter(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.email == email
+        && request.resource.data.active == getAfter(/databases/$(database)/documents/students/$(request.resource.data.studentId)).data.get('active', true);
+      allow delete: if teacher()
+        && !existsAfter(/databases/$(database)/documents/students/$(resource.data.studentId));
     }
 
     match /students/{studentId} {
@@ -82,6 +167,9 @@ service cloud.firestore {
         && resource.data.email == request.auth.token.email.lower());
       allow list: if teacher();
       allow create: if teacher() && validProfile(request.resource.data)
+        && availableClass(request.resource.data.className)
+        && request.resource.data.get('active', true) == true
+        && request.resource.data.get('deleting', false) == false
         && request.resource.data.medals.size() == 0
         && request.resource.data.summary.games == 0
         && request.resource.data.summary.totalCorrect == 0
@@ -91,32 +179,36 @@ service cloud.firestore {
         && request.resource.data.ownerUid == null
         && getAfter(/databases/$(database)/documents/enrolments/$(request.resource.data.email)).data.studentId == studentId;
       allow update: if validProfile(request.resource.data)
+        && (!resource.data.get('deleting', false) || request.resource.data.get('deleting', false))
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.email == resource.data.email
         && (
           (teacher() && request.resource.data.ownerUid == resource.data.ownerUid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname', 'className', 'classNames', 'medals', 'summary']))
+            && (request.resource.data.className == resource.data.className || availableClass(request.resource.data.className))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname', 'className', 'classNames', 'medals', 'summary', 'active', 'deleting']))
           || (signedIn() && enrolled(studentId) && resource.data.email == request.auth.token.email.lower()
             && resource.data.ownerUid == null && request.resource.data.ownerUid == request.auth.uid
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ownerUid']))
           || (accessStudent(studentId) && request.resource.data.ownerUid == resource.data.ownerUid
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['medals', 'summary']))
         );
-      allow delete: if false;
+      allow delete: if teacher() && resource.data.get('deleting', false) == true
+        && resource.data.get('active', true) == false
+        && !existsAfter(/databases/$(database)/documents/enrolments/$(resource.data.email));
 
       match /games/{gameId} {
         allow read: if accessStudent(studentId);
-        allow create: if accessStudent(studentId)
-          && request.resource.data.keys().hasOnly(['id', 'studentId', 'table', 'startedAt', 'completedAt', 'phase', 'index', 'score', 'cards', 'quiz'])
-          && request.resource.data.id == gameId
-          && request.resource.data.studentId == studentId
+        allow create: if ownsStudent(studentId) && !teacher()
+          && validGame(request.resource.data, gameId, studentId);
+        allow update: if ownsStudent(studentId) && !teacher()
+          && resource.data.phase == 'first-round-complete'
           && request.resource.data.phase == 'complete'
-          && request.resource.data.table is int && request.resource.data.table >= 1 && request.resource.data.table <= 12
-          && request.resource.data.score is int && request.resource.data.score >= 0 && request.resource.data.score <= 60
-          && request.resource.data.cards is list && request.resource.data.cards.size() == 12
-          && request.resource.data.startedAt is string && request.resource.data.completedAt is string
-          && (request.resource.data.quiz == null || request.resource.data.quiz is map);
-        allow update, delete: if false;
+          && validGame(request.resource.data, gameId, studentId)
+          && request.resource.data.firstRound == resource.data.firstRound
+          && request.resource.data.startedAt == resource.data.startedAt
+          && request.resource.data.table == resource.data.table;
+        allow delete: if teacher()
+          && get(/databases/$(database)/documents/students/$(studentId)).data.get('deleting', false) == true;
       }
     }
   }
