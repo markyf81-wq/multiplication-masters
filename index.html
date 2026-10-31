@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en-AU">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#6850c8">
+    <meta name="description" content="A little practice. A lot of possibility. Learn your times tables with flipping flashcards and collect a medal for every table.">
+    <title>Multiplication Masters</title>
+    <link rel="icon" type="image/svg+xml" href="./assets/icon.svg">
+    <link rel="stylesheet" href="./styles.css">
+    <script type="module" src="./src/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="#play" aria-label="Multiplication Masters home">
+        <span class="brand-mark" aria-hidden="true">×</span>
+        <span>multiplication<span class="brand-second">masters<span class="brand-dot">.</span></span></span>
+      </a>
+      <nav class="main-nav" aria-label="Main navigation">
+        <a href="#play" data-route="play">Play</a>
+        <a href="#progress" data-route="progress">My progress</a>
+        <a href="#medals" data-route="medals">My medals</a>
+        <a href="#teacher" data-route="teacher" id="teacher-nav" hidden>Teacher desk</a>
+      </nav>
+      <button class="profile-button" id="profile-button" type="button"><span class="avatar" aria-hidden="true">✦</span><span id="profile-label">Let’s get started</span><span aria-hidden="true">⌄</span></button>
+    </header>
+    <div class="storage-strip" id="storage-strip" role="status"></div>
+    <main id="main" tabindex="-1"></main>
+    <footer class="site-footer"><span>A little practice. A lot of possibility.</span><span>Small steps. Big maths energy. <span aria-hidden="true">✦</span></span></footer>
+    <dialog id="account-dialog" aria-labelledby="account-title">
+      <button type="button" class="dialog-close icon-button" data-close-dialog aria-label="Close account menu">×</button>
+      <span class="eyebrow">YOUR NEXT LITTLE WIN</span>
+      <h2 id="account-title">Hello, maths master.</h2>
+      <p class="muted" id="account-description">Pick up where you left off, or start something new.</p>
+      <div id="account-content"></div>
+    </dialog>
+    <dialog id="confirm-dialog" aria-labelledby="confirm-title">
+      <span class="eyebrow">TAKE A BREATHER?</span><h2 id="confirm-title">Leave this game?</h2>
+      <p class="muted">This unfinished game won’t count towards your results. You can start a fresh game whenever you’re ready.</p>
+      <div class="dialog-actions"><button class="button secondary" id="stay-button" type="button">Keep playing</button><button class="button" id="leave-button" type="button">Leave game</button></div>
+    </dialog>
+    <dialog id="classroom-dialog" class="classroom-dialog" aria-labelledby="classroom-title">
+      <button type="button" class="dialog-close icon-button" data-close-dialog aria-label="Close Classroom import">×</button>
+      <span class="eyebrow">YOUR CLASS, READY TO PRACTISE</span>
+      <h2 id="classroom-title">Import from Google Classroom</h2>
+      <div id="classroom-content"></div>
+    </dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <noscript><p class="notice">Turn on JavaScript to play Multiplication Masters.</p></noscript>
+  </body>
+</html>

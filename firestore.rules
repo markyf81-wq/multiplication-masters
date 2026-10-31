@@ -1,0 +1,123 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function teacher() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/teachers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data.enabled == true;
+    }
+
+    function validProfile(profile) {
+      return profile.keys().hasOnly(['nickname', 'className', 'classNames', 'email', 'ownerUid', 'createdAt', 'medals', 'summary'])
+        && profile.nickname is string && profile.nickname.size() > 0 && profile.nickname.size() <= 32
+        && profile.className is string && profile.className.size() > 0 && profile.className.size() <= 24
+        && profile.classNames is list && profile.classNames.size() > 0 && profile.classNames.size() <= 32
+        && profile.className in profile.classNames
+        && profile.email is string && profile.email.size() > 0 && profile.email.size() <= 254
+        && profile.email == profile.email.lower()
+        && (profile.ownerUid == null || profile.ownerUid is string)
+        && profile.createdAt is string
+        && profile.medals is list && profile.medals.size() <= 12
+        && profile.medals.hasOnly([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        && profile.summary is map
+        && profile.summary.keys().hasOnly(['games', 'totalCorrect', 'totalResponseMs', 'bestScore', 'lastPlayed'])
+        && profile.summary.games is int && profile.summary.games >= 0
+        && profile.summary.totalCorrect is int && profile.summary.totalCorrect >= 0
+        && profile.summary.totalCorrect <= profile.summary.games * 12
+        && profile.summary.totalResponseMs is int && profile.summary.totalResponseMs >= 0
+        && profile.summary.bestScore is int && profile.summary.bestScore >= 0 && profile.summary.bestScore <= 60
+        && (profile.summary.lastPlayed == null || profile.summary.lastPlayed is string);
+    }
+
+    function enrolled(studentId) {
+      let email = request.auth.token.email.lower();
+      return exists(/databases/$(database)/documents/enrolments/$(email))
+        && get(/databases/$(database)/documents/enrolments/$(email)).data.active == true
+        && get(/databases/$(database)/documents/enrolments/$(email)).data.studentId == studentId;
+    }
+
+    function accessStudent(studentId) {
+      return teacher() || (signedIn() && enrolled(studentId)
+        && get(/databases/$(database)/documents/students/$(studentId)).data.ownerUid == request.auth.uid);
+    }
+
+    match /teachers/{uid} {
+      // Only project administrators can grant teacher access, through the console.
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, create, update, delete: if false;
+    }
+
+    match /classes/{classId} {
+      allow read: if teacher();
+      allow create, update: if teacher()
+        && request.resource.data.keys().hasOnly(['name', 'classroomCourseId'])
+        && request.resource.data.name is string
+        && request.resource.data.name == classId
+        && classId.size() > 0 && classId.size() <= 24
+        && (!('classroomCourseId' in request.resource.data)
+          || (request.resource.data.classroomCourseId is string && request.resource.data.classroomCourseId.size() <= 128));
+      allow delete: if false;
+    }
+
+    match /enrolments/{email} {
+      // A student can look up only their own verified Google email; no roster listing.
+      allow get: if teacher() || (signedIn() && email == request.auth.token.email.lower());
+      allow list: if teacher();
+      allow create, update: if teacher()
+        && request.resource.data.keys().hasOnly(['email', 'studentId', 'active'])
+        && request.resource.data.email == email && email == email.lower()
+        && request.resource.data.studentId is string && request.resource.data.studentId.size() > 0
+        && request.resource.data.active is bool;
+      allow delete: if false;
+    }
+
+    match /students/{studentId} {
+      allow get: if teacher() || (signedIn() && enrolled(studentId)
+        && resource.data.email == request.auth.token.email.lower());
+      allow list: if teacher();
+      allow create: if teacher() && validProfile(request.resource.data)
+        && request.resource.data.medals.size() == 0
+        && request.resource.data.summary.games == 0
+        && request.resource.data.summary.totalCorrect == 0
+        && request.resource.data.summary.totalResponseMs == 0
+        && request.resource.data.summary.bestScore == 0
+        && request.resource.data.summary.lastPlayed == null
+        && request.resource.data.ownerUid == null
+        && getAfter(/databases/$(database)/documents/enrolments/$(request.resource.data.email)).data.studentId == studentId;
+      allow update: if validProfile(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.email == resource.data.email
+        && (
+          (teacher() && request.resource.data.ownerUid == resource.data.ownerUid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname', 'className', 'classNames', 'medals', 'summary']))
+          || (signedIn() && enrolled(studentId) && resource.data.email == request.auth.token.email.lower()
+            && resource.data.ownerUid == null && request.resource.data.ownerUid == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ownerUid']))
+          || (accessStudent(studentId) && request.resource.data.ownerUid == resource.data.ownerUid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['medals', 'summary']))
+        );
+      allow delete: if false;
+
+      match /games/{gameId} {
+        allow read: if accessStudent(studentId);
+        allow create: if accessStudent(studentId)
+          && request.resource.data.keys().hasOnly(['id', 'studentId', 'table', 'startedAt', 'completedAt', 'phase', 'index', 'score', 'cards', 'quiz'])
+          && request.resource.data.id == gameId
+          && request.resource.data.studentId == studentId
+          && request.resource.data.phase == 'complete'
+          && request.resource.data.table is int && request.resource.data.table >= 1 && request.resource.data.table <= 12
+          && request.resource.data.score is int && request.resource.data.score >= 0 && request.resource.data.score <= 60
+          && request.resource.data.cards is list && request.resource.data.cards.size() == 12
+          && request.resource.data.startedAt is string && request.resource.data.completedAt is string
+          && (request.resource.data.quiz == null || request.resource.data.quiz is map);
+        allow update, delete: if false;
+      }
+    }
+  }
+}

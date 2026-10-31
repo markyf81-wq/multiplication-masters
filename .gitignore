@@ -1,0 +1,10 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
+.firebase/
+node_modules/
+coverage/
+local-data/
+*-export.json
