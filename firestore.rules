@@ -3,12 +3,16 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
       return request.auth != null
-        && request.auth.token.firebase.sign_in_provider == 'google.com'
-        && request.auth.token.email_verified == true;
+        && request.auth.token.email is string
+        && ((request.auth.token.firebase.sign_in_provider == 'google.com'
+          && request.auth.token.email_verified == true)
+          || (request.auth.token.firebase.sign_in_provider == 'password'
+            && request.auth.token.get('studentPasswordLogin', false) == true));
     }
 
     function teacher() {
       return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
         && exists(/databases/$(database)/documents/teachers/$(request.auth.token.email.lower()))
         && get(/databases/$(database)/documents/teachers/$(request.auth.token.email.lower())).data.enabled == true;
     }
@@ -148,7 +152,7 @@ service cloud.firestore {
     }
 
     match /enrolments/{email} {
-      // A student can look up only their own verified Google email; no roster listing.
+      // Only verified Google or administrator-provisioned password sessions; no roster listing.
       allow get: if teacher() || (signedIn() && email == request.auth.token.email.lower());
       allow list: if teacher();
       allow create, update: if teacher()
@@ -164,6 +168,7 @@ service cloud.firestore {
 
     match /students/{studentId} {
       allow get: if teacher() || (signedIn() && enrolled(studentId)
+        && (request.auth.token.firebase.sign_in_provider == 'google.com' || resource.data.ownerUid == request.auth.uid)
         && resource.data.email == request.auth.token.email.lower());
       allow list: if teacher();
       allow create: if teacher() && validProfile(request.resource.data)
@@ -187,6 +192,7 @@ service cloud.firestore {
             && (request.resource.data.className == resource.data.className || availableClass(request.resource.data.className))
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname', 'className', 'classNames', 'medals', 'summary', 'active', 'deleting']))
           || (signedIn() && enrolled(studentId) && resource.data.email == request.auth.token.email.lower()
+            && request.auth.token.firebase.sign_in_provider == 'google.com'
             && resource.data.ownerUid == null && request.resource.data.ownerUid == request.auth.uid
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ownerUid']))
           || (accessStudent(studentId) && request.resource.data.ownerUid == resource.data.ownerUid

@@ -21,7 +21,7 @@ const state = {
   teacherStudents: [], teacherCursor: null, teacherMore: false,
   filter: "", classFilter: "", saving: false, saveError: null,
   firstRoundSaving: false, firstRoundSaved: false, firstRoundError: null, firstRoundPromise: null,
-  importing: false, teacherClasses: [], importBatch: null, importDraft: null, importPreview: null,
+  importing: false, signingIn: false, teacherClasses: [], importBatch: null, importDraft: null, importPreview: null,
   teacherAccounts: [], teacherAccountCursor: null, teacherAccountMore: false,
   teacherAccountError: null, pendingTeacherAccess: null, changingTeacherAccess: false,
   pendingStudentAction: null, changingStudent: false, detailReturnRoute: "teacher",
@@ -65,6 +65,11 @@ function toast(message) {
 }
 
 function errorMessage(error) {
+  if (["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found"].includes(error?.code)) return "Email or password isn’t correct. Check with your teacher if you need help.";
+  if (error?.code === "auth/invalid-email") return "Enter a valid email address.";
+  if (error?.code === "auth/user-disabled") return "This account is disabled. Ask your teacher for help.";
+  if (error?.code === "auth/too-many-requests") return "Too many sign-in attempts. Wait a little, then try again.";
+  if (error?.code === "auth/operation-not-allowed") return "This sign-in method isn’t enabled yet. Ask your teacher for help.";
   if (error?.code === "auth/popup-closed-by-user") return "Sign-in was closed. You can try again whenever you’re ready.";
   if (error?.code === "auth/popup-blocked") return "Please allow the Google sign-in popup, then try again.";
   if (error?.code === "permission-denied") return data.isTeacher()
@@ -136,7 +141,7 @@ function renderHome() {
   main.innerHTML = `
     <section class="page-heading play-heading"><div><h1>Pick your <span>times table!</span></h1><p class="muted">12 cards. 5 seconds per answer.</p></div><span class="heading-character" aria-hidden="true">${medalArt(state.table, false)}</span></section>
     ${profile ? homeMedals(profile) : ""}
-    ${!profile ? `<section class="notice">${data.store.teacher ? 'You are signed in as a teacher. Switch to a student Google account to play.' : 'Sign in with your student Google account to play. Your teacher must add your account first.'}<button class="button" type="button" data-action="account">${data.store.user ? "Switch account" : "Sign in with Google"}</button></section>` : ""}
+    ${!profile ? `<section class="notice">${data.store.teacher ? 'You are signed in as a teacher. Switch to a student account to play.' : 'Sign in with your student account to play. Your teacher must add your account first.'}<button class="button" type="button" data-action="account">${data.store.user ? "Switch account" : "Sign in"}</button></section>` : ""}
     <section class="play-layout" id="table-picker" aria-labelledby="table-heading">
       <div class="table-panel"><div class="section-heading"><h2 id="table-heading">Choose a times table</h2></div>
         <div class="table-grid" role="group" aria-label="Choose a times table">${TABLES.map(table => {
@@ -168,7 +173,7 @@ function medalShelf(profile, compact = false) {
 
 function renderMedals() {
   const profile = data.activeProfile();
-  if (!profile) { main.innerHTML = '<section class="empty-state"><h1>My medals</h1><p>Sign in with your student Google account to view medals.</p><button class="button" type="button" data-action="account">Sign in</button></section>'; return; }
+  if (!profile) { main.innerHTML = '<section class="empty-state"><h1>My medals</h1><p>Sign in with your student account to view medals.</p><button class="button" type="button" data-action="account">Sign in</button></section>'; return; }
   const complete = medalCount(profile) === 12;
   main.innerHTML = `<section class="page-heading"><h1>My medal collection</h1><p>Get 12/12 flashcards correct, then at least 19/20 in the quiz.</p></section><section class="panel medal-panel"><h2>${medalCount(profile)} of 12 medals</h2>${medalShelf(profile)}<div class="trophy-panel ${complete ? "earned" : ""}"><span class="trophy-drawing" aria-hidden="true">${icons.trophy}</span><div><h2>${complete ? "Trophy earned" : "Trophy"}</h2><p>Earn all 12 medals to complete the game.</p></div><strong>${medalCount(profile)} / 12</strong></div><button class="button" type="button" data-link="play">Choose a table</button></section>`;
 }
@@ -181,7 +186,7 @@ function loadingPage(title) {
 async function renderProgress(renderId) {
   const profile = state.detailProfile || data.activeProfile();
   if (!profile) {
-    main.innerHTML = `<section class="empty-state"><h1>My progress</h1><p>Sign in with your student Google account to view results.</p><button class="button" type="button" data-action="account">Sign in</button></section>`;
+    main.innerHTML = `<section class="empty-state"><h1>My progress</h1><p>Sign in with your student account to view results.</p><button class="button" type="button" data-action="account">Sign in</button></section>`;
     return;
   }
   loadingPage(state.detailProfile ? "Student results" : "My progress");
@@ -240,7 +245,7 @@ async function renderTeacher(renderId) {
       teacherAccountMore: !!teacherResult?.more, teacherAccountError: teacherResult?.error || null,
     });
     main.removeAttribute("aria-busy");
-    main.innerHTML = `<section class="page-heading"><span class="eyebrow">TEACHER DESK</span><h1>Teacher desk</h1><p class="muted">Manage classes, students and teachers.</p></section><section class="panel"><div class="section-heading"><h2>Students & classes</h2><button class="text-link" type="button" data-action="refresh-teacher-data">Refresh</button></div><div class="teacher-tools"><label class="search-field"><span class="sr-only">Search students</span><input type="search" id="student-search" placeholder="Find a student…" value="${esc(state.filter)}"></label><label><span class="sr-only">Filter by class</span><select id="class-filter"><option value="">All classes</option>${classes.map(item => `<option ${state.classFilter === item.name ? "selected" : ""} value="${esc(item.name)}">${esc(item.name)}</option>`).join("")}</select></label></div><div id="student-list"></div><div class="load-more-row"><span id="student-count" class="small muted"></span><button class="button secondary small-button" type="button" data-action="load-students" ${state.teacherMore ? "" : "hidden"}>Load more students</button></div></section><div class="teacher-forms"><section class="panel"><h2>Add a class</h2><form id="class-form" class="stack-form"><label>Class name<input name="className" placeholder="e.g. 4F" maxlength="24" required pattern="([A-Za-z0-9 _]|-)+"></label><button class="button secondary" type="submit">Add class +</button></form></section><section class="panel"><h2>Add a student</h2><form id="student-form" class="stack-form"><div class="field-pair"><label>Name<input name="nickname" placeholder="e.g. Alex" maxlength="32" required></label><label>Class<select name="className" required><option value="">Choose a class</option>${classes.map(item => `<option value="${esc(item.name)}">${esc(item.name)}</option>`).join("")}</select></label></div><p class="small muted">Students must sign in with their own Google account to play.</p><button class="button" type="submit">Add student +</button></form></section></div>`;
+    main.innerHTML = `<section class="page-heading"><span class="eyebrow">TEACHER DESK</span><h1>Teacher desk</h1><p class="muted">Manage classes, students and teachers.</p></section><section class="panel"><div class="section-heading"><h2>Students & classes</h2><button class="text-link" type="button" data-action="refresh-teacher-data">Refresh</button></div><div class="teacher-tools"><label class="search-field"><span class="sr-only">Search students</span><input type="search" id="student-search" placeholder="Find a student…" value="${esc(state.filter)}"></label><label><span class="sr-only">Filter by class</span><select id="class-filter"><option value="">All classes</option>${classes.map(item => `<option ${state.classFilter === item.name ? "selected" : ""} value="${esc(item.name)}">${esc(item.name)}</option>`).join("")}</select></label></div><div id="student-list"></div><div class="load-more-row"><span id="student-count" class="small muted"></span><button class="button secondary small-button" type="button" data-action="load-students" ${state.teacherMore ? "" : "hidden"}>Load more students</button></div></section><div class="teacher-forms"><section class="panel"><h2>Add a class</h2><form id="class-form" class="stack-form"><label>Class name<input name="className" placeholder="e.g. 4F" maxlength="24" required pattern="([A-Za-z0-9 _]|-)+"></label><button class="button secondary" type="submit">Add class +</button></form></section><section class="panel"><h2>Add a student</h2><form id="student-form" class="stack-form"><div class="field-pair"><label>Name<input name="nickname" placeholder="e.g. Alex" maxlength="32" required></label><label>Class<select name="className" required><option value="">Choose a class</option>${classes.map(item => `<option value="${esc(item.name)}">${esc(item.name)}</option>`).join("")}</select></label></div><p class="small muted">Students sign in with their email and password, or Google account.</p><button class="button" type="submit">Add student +</button></form></section></div>`;
     renderStudentList();
     addTeacherGuideLink();
     enhanceTeacherSetup();
@@ -320,7 +325,7 @@ function enhanceTeacherSetup() {
   const label = document.createElement("label");
   label.innerHTML = 'School Google email<input name="email" type="email" required maxlength="254" placeholder="student@school.example" autocomplete="off">';
   form.querySelector(".field-pair").after(label);
-  form.querySelector("p").textContent = "The student signs in with this Google account. If they already exist, their class is added without duplicating their progress. ";
+  form.querySelector("p").textContent = "The student signs in using this email. If they already exist, their class is added without duplicating their progress. ";
   const panel = document.createElement("section");
   panel.className = "panel student-import-panel";
   panel.innerHTML = `<div><h2>Import students</h2><p class="muted">Paste student names and Google emails from a spreadsheet.</p></div><button class="button secondary" type="button" data-action="open-student-import">Bulk import ${icon("arrow")}</button>`;
@@ -466,7 +471,7 @@ function gameSessionIsValid() {
   state.stage = "intro";
   state.locked = true;
   navigate("play", { force: true });
-  toast("Sign in with your student Google account to play.");
+  toast("Sign in with your student account to play.");
   return false;
 }
 
@@ -751,14 +756,46 @@ function renderResults() {
 }
 
 function openAccount() {
+  if (state.signingIn) return;
   if (state.game && state.stage !== "complete") { toast("Finish or leave the game before switching accounts."); return; }
   const profile = data.activeProfile();
   const status = accountDialog.querySelector("#account-status");
   status.hidden = true;
   status.textContent = "";
   const content = document.querySelector("#account-content");
-  content.innerHTML = `${data.store.user ? `<div class="account-current"><div><strong>${data.store.teacher ? "Teacher account" : esc(profile?.nickname || "Student account")}</strong><span>${esc(data.store.user.email)}</span>${profile ? `<span>Class ${esc(classLabel(profile))}</span>` : ""}</div></div>` : '<p class="muted">Sign in with the Google account your teacher has added.</p>'}<button class="button google-button" type="button" data-action="google-login" ${data.store.configured ? "" : "disabled"}><span aria-hidden="true" class="google-g">G</span> ${data.store.user ? "Switch Google account" : "Sign in with Google"}</button>${!data.store.configured ? '<p class="notice">Google sign-in is not configured. Contact your teacher.</p>' : ""}${data.isTeacher() ? '<button class="text-link account-signout" type="button" data-action="teacher-desk">Teacher desk →</button>' : ""}${data.store.user ? '<button class="text-link account-signout" type="button" data-action="signout">Sign out</button>' : ""}`;
+  content.innerHTML = `${data.store.user ? `<div class="account-current"><div><strong>${data.store.teacher ? "Teacher account" : esc(profile?.nickname || "Student account")}</strong><span>${esc(data.store.user.email)}</span>${profile ? `<span>Class ${esc(classLabel(profile))}</span>` : ""}</div></div>` : ""}
+    ${data.isTeacher() ? "" : `<form id="student-login-form" class="stack-form student-login-form"><h3>Student sign-in</h3><label>Email<input name="email" type="email" maxlength="254" autocomplete="username" autocapitalize="off" spellcheck="false" inputmode="email" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button class="button" type="submit" ${data.store.configured ? "" : "disabled"}>Sign in</button></form><p class="account-login-divider">Or use Google</p>`}
+    <button class="button google-button" type="button" data-action="google-login" ${data.store.configured ? "" : "disabled"}><span aria-hidden="true" class="google-g">G</span> ${data.store.user ? "Switch Google account" : "Sign in with Google"}</button>
+    <p class="small muted account-login-note">Teachers use Google sign-in.</p>${!data.store.configured ? '<p class="notice">Sign-in is not configured. Contact your teacher.</p>' : ""}${data.isTeacher() ? '<button class="text-link account-signout" type="button" data-action="teacher-desk">Teacher desk →</button>' : ""}${data.store.user ? '<button class="text-link account-signout" type="button" data-action="signout">Sign out</button>' : ""}`;
   if (!accountDialog.open) accountDialog.showModal();
+}
+
+async function signInAccount(authenticate, button) {
+  if (state.signingIn || !data.store.configured) return;
+  state.signingIn = true;
+  const status = accountDialog.querySelector("#account-status");
+  status.hidden = true;
+  status.textContent = "";
+  const controls = [...accountDialog.querySelectorAll("button, input")];
+  controls.forEach(control => { control.disabled = true; });
+  button.setAttribute("aria-busy", "true");
+  try {
+    await authenticate();
+    accountDialog.close();
+    await navigate(data.store.teacher ? "teacher" : "play");
+  } catch (error) {
+    if (accountDialog.open) {
+      status.textContent = errorMessage(error);
+      status.hidden = false;
+      status.focus();
+    } else toast(errorMessage(error));
+  } finally {
+    const password = accountDialog.querySelector('[name="password"]');
+    if (password) password.value = "";
+    controls.forEach(control => { if (control.isConnected) control.disabled = false; });
+    button.removeAttribute("aria-busy");
+    state.signingIn = false;
+  }
 }
 
 async function performStudentImport(batch) {
@@ -872,24 +909,7 @@ async function handleAction(action, button) {
     return;
   }
   if (action === "google-login") {
-    const status = accountDialog.querySelector("#account-status");
-    status.hidden = true;
-    status.textContent = "";
-    button.disabled = true;
-    button.setAttribute("aria-busy", "true");
-    try {
-      await data.loginGoogle();
-      accountDialog.close();
-      navigate(data.store.teacher ? "teacher" : "play");
-    } catch (error) {
-      if (accountDialog.open) {
-        status.textContent = errorMessage(error);
-        status.hidden = false;
-        status.focus();
-      } else toast(errorMessage(error));
-    } finally {
-      if (button.isConnected) { button.disabled = false; button.removeAttribute("aria-busy"); }
-    }
+    await signInAccount(() => data.loginGoogle(), button);
     return;
   }
   if (action === "signout") {
@@ -978,6 +998,13 @@ document.addEventListener("submit", async event => {
   const button = form.querySelector('[type="submit"]');
   if (button?.disabled) return;
   const fields = new FormData(form);
+  if (form.id === "student-login-form") {
+    if (!form.reportValidity()) return;
+    const email = String(fields.get("email") || "").trim();
+    const password = String(fields.get("password") || "");
+    await signInAccount(() => data.loginPassword(email, password), button);
+    return;
+  }
   if (form.id === "teacher-access-form") {
     confirmTeacherAccess(String(fields.get("email") || ""), true, { invite: true });
     return;
@@ -1101,3 +1128,6 @@ async function boot() {
 boot().catch(error => {
   main.innerHTML = `<section class="empty-state"><h1>Unable to load</h1><p>${esc(errorMessage(error))}</p><a class="button" href="./">Reload the game</a></section>`;
 });
+
+accountDialog.addEventListener("cancel", event => { if (state.signingIn) event.preventDefault(); });
+accountDialog.addEventListener("close", () => { const password = accountDialog.querySelector('[name="password"]'); if (password) password.value = ""; });

@@ -3,6 +3,8 @@ import { gameStats, GAME_PAGE_SIZE } from "./game.js";
 
 let auth, db, authApi, dataApi;
 let approvedTeacherUid = null;
+let studentSessionUid = null;
+let sessionProvider = null;
 const gameCursors = new WeakMap();
 
 export async function connect() {
@@ -17,27 +19,47 @@ export async function connect() {
   auth = authApi.getAuth(app);
   db = dataApi.getFirestore(app);
   await auth.authStateReady();
+  await readSession(auth.currentUser);
   return auth.currentUser;
+}
+
+async function readSession(user) {
+  studentSessionUid = null;
+  sessionProvider = null;
+  approvedTeacherUid = null;
+  if (!user) return;
+  const token = await authApi.getIdTokenResult(user);
+  sessionProvider = token.signInProvider;
+  if ((sessionProvider === "google.com" && user.emailVerified)
+    || (sessionProvider === "password" && token.claims.studentPasswordLogin === true)) studentSessionUid = user.uid;
 }
 
 export async function login() {
   const provider = new authApi.GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
-  return (await authApi.signInWithPopup(auth, provider)).user;
+  const user = (await authApi.signInWithPopup(auth, provider)).user;
+  await readSession(user);
+  return user;
 }
 
-export async function logout() { approvedTeacherUid = null; await authApi.signOut(auth); }
+export async function loginPassword(address, password) {
+  const user = (await authApi.signInWithEmailAndPassword(auth, normaliseEmail(address), password)).user;
+  await readSession(user);
+  return user;
+}
 
-export function signedInAs(uid) { return !!uid && auth?.currentUser?.uid === uid && auth.currentUser.emailVerified; }
+export async function logout() { approvedTeacherUid = null; studentSessionUid = null; sessionProvider = null; await authApi.signOut(auth); }
+
+export function signedInAs(uid) { return !!uid && auth?.currentUser?.uid === uid && studentSessionUid === uid; }
 
 function normaliseEmail(address) {
   const email = address.trim().toLowerCase();
-  if (!/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(email) || email.length > 254) throw new Error("Enter a valid Google email address.");
+  if (!/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(email) || email.length > 254) throw new Error("Enter a valid email address.");
   return email;
 }
 
 export async function isTeacher(user) {
-  if (!user.email || !user.emailVerified) { approvedTeacherUid = null; return false; }
+  if (sessionProvider !== "google.com" || !user.email || !user.emailVerified) { approvedTeacherUid = null; return false; }
   const approval = await dataApi.getDocFromServer(dataApi.doc(db, "teachers", normaliseEmail(user.email)));
   const approved = approval.exists() && approval.data().enabled === true;
   approvedTeacherUid = approved ? user.uid : null;
@@ -189,18 +211,19 @@ export async function enrolStudent(nickname, className, address) {
 
 export async function resolveEnrolledStudent(user) {
   const email = user.email?.trim().toLowerCase();
-  if (!email || !user.emailVerified) throw new Error("Please use your verified school Google account.");
+  if (!email || !signedInAs(user.uid)) throw new Error("Password sign-in has not been set up for this student. Use Google sign-in or ask your teacher for help.");
   const enrolmentRef = dataApi.doc(db, "enrolments", email);
   return dataApi.runTransaction(db, async transaction => {
     const enrolment = await transaction.get(enrolmentRef);
-    if (!enrolment.exists()) throw new Error("Your teacher hasn’t added this Google account to a class yet. Ask your teacher to add you, then sign in again.");
+    if (!enrolment.exists()) throw new Error("Your teacher hasn’t added this email yet. Ask your teacher to add you, then sign in again.");
     if (!enrolment.data().active) throw new Error("Your student account is disabled. Ask your teacher for help.");
     const studentId = enrolment.data().studentId;
     const profileRef = dataApi.doc(db, "students", studentId);
     const profile = await transaction.get(profileRef);
     if (!profile.exists()) throw new Error("Your class account needs your teacher’s help before you can sign in.");
     if (profile.data().active === false || profile.data().deleting) throw new Error("Your student account is disabled. Ask your teacher for help.");
-    if (profile.data().ownerUid && profile.data().ownerUid !== user.uid) throw new Error("This class account is linked to a different Google identity. Ask your teacher to check it.");
+    if (!profile.data().ownerUid && sessionProvider !== "google.com") throw new Error("Password sign-in setup is incomplete. Ask your teacher for help.");
+    if (profile.data().ownerUid && profile.data().ownerUid !== user.uid) throw new Error("This student record is linked to a different account. Ask your teacher to check it.");
     if (!profile.data().ownerUid) transaction.update(profileRef, { ownerUid: user.uid });
     return { id: studentId, ...profile.data(), ownerUid: user.uid, cloud: true };
   });

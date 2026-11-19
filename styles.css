@@ -969,6 +969,11 @@ input:not(#answer):focus-visible, select:focus-visible, textarea:focus-visible, 
 .profile-button .profile-chevron { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 2px; flex: 0 0 20px; }
 .profile-chevron svg, .details-chevron .icon svg { stroke-width: 2.5; }
 .account-status { margin: 20px 0 0; padding: 14px 17px; background: #fff0e1; border: 2px solid #c67439; color: #623917; overflow-wrap: anywhere; }
+.student-login-form { margin-top: 20px; }
+.student-login-form h3 { margin: 0; }
+.student-login-form .button { width: 100%; }
+.account-login-divider { text-align: center; margin: 22px 0 14px; color: var(--muted); font-weight: 800; }
+.account-login-note { text-align: center; margin: 12px 0 0; }
 .class-admin-panel { margin-top: 24px; }
 .class-admin-dialog { width: min(580px, calc(100vw - 30px)); }
 .class-admin-dialog .dialog-actions { flex-wrap: wrap; margin-top: 25px; }

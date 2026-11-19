@@ -87,7 +87,7 @@ export async function initialise() {
 
 export function activeProfile() {
   const profile = memory.profiles.find(item => item.id === memory.activeId);
-  return store.user?.emailVerified && store.cloud?.signedInAs(store.user.uid) && !store.teacher && profile?.cloud && profile.ownerUid === store.user.uid && profile.active !== false && !profile.deleting ? profile : null;
+  return store.user && store.cloud?.signedInAs(store.user.uid) && !store.teacher && profile?.cloud && profile.ownerUid === store.user.uid && profile.active !== false && !profile.deleting ? profile : null;
 }
 
 function setActive(id) { memory.activeId = id; }
@@ -98,8 +98,12 @@ function requireTeacher() {
   if (!store.teacher || !store.user || !store.cloud) throw new Error("Sign in with an approved teacher Google account.");
 }
 
-export async function loginGoogle() {
-  if (!store.configured) throw new Error("Google sign-in is not configured. Contact your teacher.");
+export function loginGoogle() { return loginWith(cloud => cloud.login()); }
+
+export function loginPassword(email, password) { return loginWith(cloud => cloud.loginPassword(email, password)); }
+
+async function loginWith(authenticate) {
+  if (!store.configured) throw new Error("Sign-in is not configured. Contact your teacher.");
   if (!store.cloud || store.connectionError) {
     store.cloud = await import("./firebase.js");
     await store.cloud.connect();
@@ -107,7 +111,7 @@ export async function loginGoogle() {
   const previousProfile = activeProfile();
   stopAccessWatch?.();
   stopAccessWatch = null;
-  try { store.user = await store.cloud.login(); }
+  try { store.user = await authenticate(store.cloud); }
   catch (error) { if (previousProfile && activeProfile()) watchAccess(previousProfile); throw error; }
   memory.profiles = [];
   memory.games = [];
@@ -287,7 +291,7 @@ export async function reportGamesFor(id, range, { refresh = false } = {}) {
 
 export async function saveGame(game) {
   const profile = activeProfile();
-  if (!profile || game.studentId !== profile.id) throw new Error("Sign in with your student Google account to record a game.");
+  if (!profile || game.studentId !== profile.id) throw new Error("Sign in with your student account to record a game.");
   const updated = await store.cloud.saveGame(game);
   invalidateGames(game.studentId);
   invalidateReads("students:");
@@ -297,7 +301,7 @@ export async function saveGame(game) {
 
 export async function saveFirstRound(game) {
   const profile = activeProfile();
-  if (!profile || game.studentId !== profile.id) throw new Error("Sign in with your student Google account to save the first round.");
+  if (!profile || game.studentId !== profile.id) throw new Error("Sign in with your student account to save the first round.");
   await store.cloud.saveFirstRound(game);
   invalidateGames(game.studentId);
 }
